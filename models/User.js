@@ -10,7 +10,7 @@ const userSchema = new mongoose.Schema(
             enum: ["student", "instructor", "admin"], 
             default: "student"  // Default to student
         },
-        profilePicture: { type: String, default: "" }, 
+        profilePicture: { type: String, default: "https://img.freepik.com/premium-vector/avatar-profile-icon-flat-style-male-user-profile-vector-illustration-isolated-background-man-profile-sign-business-concept_157943-38764.jpg?semt=ais_hybrid" }, 
 
         // STUDENT FIELDS
         enrolledCourses: [{ type: mongoose.Schema.Types.ObjectId, ref: "Course" }], // Courses enrolled
@@ -25,11 +25,6 @@ const userSchema = new mongoose.Schema(
     { timestamps: true } 
 );
 
-// Hash password before saving to database
-userSchema.pre("save", async function (next) {
-    if (!this.isModified("password")) return next();
-    this.password = await bcrypt.hash(this.password, 10);
-    next();
-});
+
 
 export default mongoose.model("User", userSchema);
