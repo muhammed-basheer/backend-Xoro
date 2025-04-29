@@ -8,9 +8,10 @@ const userSchema = new mongoose.Schema(
         role: { 
             type: String, 
             enum: ["student", "instructor", "admin"], 
-            default: "student"  // Default to student
+            default: "student"  
         },
         profilePicture: { type: String, default: "https://img.freepik.com/premium-vector/avatar-profile-icon-flat-style-male-user-profile-vector-illustration-isolated-background-man-profile-sign-business-concept_157943-38764.jpg?semt=ais_hybrid" }, 
+        refreshToken: { type: String }, 
 
         // STUDENT FIELDS
         enrolledCourses: [{ type: mongoose.Schema.Types.ObjectId, ref: "Course" }], // Courses enrolled
