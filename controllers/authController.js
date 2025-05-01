@@ -4,37 +4,73 @@ import jwt from "jsonwebtoken"
 import errorHandling from "../utility/errorHandling.js"
 
 
-export const signUp = async (req, res, next)=>{
+export const signUp = async (req, res, next) => {
     try {
-        
-        const { name , email, password} = req.body; 
-
-        if(!name || !email || !password){
-            return res.status(400).json({message : "All fields are required"})
+        const { name, email, password } = req.body;
+        if (!name || !email || !password) {
+            return res.status(400).json({ message: "All fields are required" });
         }
-        const existingUser = await User.findOne({email});
 
-        if(existingUser){
-            return res.status(400).json({message : "User already exists"})
+        const existingUser = await User.findOne({ email });
+        if (existingUser) {
+            return res.status(400).json({ message: "User already exists" });
         }
+
         const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(password,salt);
+        const hashedPassword = await bcrypt.hash(password, salt);
 
         const newUser = new User({
             name,
             email,
-            password : hashedPassword,
-            role : "student"
-        })
+            password: hashedPassword,
+            role: "student"
+        });
 
         await newUser.save();
 
-        res.status(201).json({message : "User created successfully",newUser})
+        // ✅ Auto-login logic after registration
+        const { password: hashedPwd, ...rest } = newUser._doc;
+
+        const accessToken = jwt.sign(
+            { id: newUser._id, role: newUser.role },
+            process.env.JWT_SECRET,
+            { expiresIn: "15m" }
+        );
+
+        const refreshToken = jwt.sign(
+            { id: newUser._id },
+            process.env.JWT_REFRESH,
+            { expiresIn: "7d" }
+        );
+
+        newUser.refreshToken = refreshToken;
+        await newUser.save();
+
+        res.cookie("access_token", accessToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "strict",
+            maxAge: 15 * 60 * 1000, // 15 minutes
+        });
+
+        res.cookie("refresh_token", refreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "strict",
+            maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        });
+
+        res.status(201).json({
+            message: "User registered and logged in successfully",
+            user: rest,
+            accessToken
+        });
 
     } catch (error) {
-        next(error)
+        next(error);
     }
-}
+};
+
 
 export const signIn = async (req, res, next) => {
     try {
@@ -56,20 +92,22 @@ export const signIn = async (req, res, next) => {
         const accessToken = jwt.sign(
             { id: user._id, role: user.role },
             process.env.JWT_SECRET,
-            { expiresIn: "15s" } // Short-lived access token
+            { expiresIn: "15m" } // Short-lived access token
         );
-
+        console.log("JWT_SECRET:", process.env.JWT_SECRET);
+        
         // Generate Refresh Token
         const refreshToken = jwt.sign(
             { id: user._id },
-            process.env.JWT_REFRESH_SECRET,
+            process.env.JWT_REFRESH,
             
             { expiresIn: "7d" } // Long-lived refresh token
-        );
-
+        );  
+        
+        console.log("JWT_REFRESH:", process.env.JWT_REFRESH);
         // Save refresh token in the database (optional, for better security)
         user.refreshToken = refreshToken;
-        await user.save();
+        await user.save();  
 
         // Set tokens in cookies
         res.cookie("access_token", accessToken, {
@@ -86,7 +124,7 @@ export const signIn = async (req, res, next) => {
             maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
         });
 
-        res.status(200).json({ message: true, user: rest, accessToken, refreshToken });
+        res.status(200).json({ message: true, user: rest, accessToken });
     } catch (error) {
         next(error);
     }
