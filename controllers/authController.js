@@ -28,9 +28,6 @@ export const signUp = async (req, res, next) => {
 
         await newUser.save();
 
-        // ✅ Auto-login logic after registration
-        const { password: hashedPwd, ...rest } = newUser._doc;
-
         const accessToken = jwt.sign(
             { id: newUser._id, role: newUser.role },
             process.env.JWT_SECRET,
@@ -46,30 +43,34 @@ export const signUp = async (req, res, next) => {
         newUser.refreshToken = refreshToken;
         await newUser.save();
 
+        // ✅ Avoid sending password and refresh token
+        const { password: hashedPwd, refreshToken: hiddenToken, ...rest } = newUser._doc;
+
+        // Set secure cookies
         res.cookie("access_token", accessToken, {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
             sameSite: "strict",
-            maxAge: 15 * 60 * 1000, // 15 minutes
+            maxAge: 15 * 60 * 1000
         });
 
         res.cookie("refresh_token", refreshToken, {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
             sameSite: "strict",
-            maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+            maxAge: 7 * 24 * 60 * 60 * 1000
         });
 
         res.status(201).json({
             message: "User registered and logged in successfully",
-            user: rest,
-            accessToken
+            user: rest
         });
 
     } catch (error) {
         next(error);
     }
 };
+
 
 
 export const signIn = async (req, res, next) => {
@@ -86,49 +87,49 @@ export const signIn = async (req, res, next) => {
 
         if (!user.isActive) return next(errorHandling(401, "Your account has been deactivated. Contact support..."));
 
-        const { password: hashedPassword, ...rest } = user._doc;
-
-        // Generate Access Token
+        // Save refresh token
         const accessToken = jwt.sign(
             { id: user._id, role: user.role },
             process.env.JWT_SECRET,
-            { expiresIn: "15m" } // Short-lived access token
+            { expiresIn: "15m" }
         );
-        console.log("JWT_SECRET:", process.env.JWT_SECRET);
-        
-        // Generate Refresh Token
+
         const refreshToken = jwt.sign(
             { id: user._id },
             process.env.JWT_REFRESH,
-            
-            { expiresIn: "7d" } // Long-lived refresh token
-        );  
-        
-        console.log("JWT_REFRESH:", process.env.JWT_REFRESH);
-        // Save refresh token in the database (optional, for better security)
-        user.refreshToken = refreshToken;
-        await user.save();  
+            { expiresIn: "7d" }
+        );
 
-        // Set tokens in cookies
+        user.refreshToken = refreshToken;
+        await user.save();
+
+        // Exclude password and refreshToken from response
+        const { password: hashedPassword, refreshToken: hiddenToken, ...rest } = user._doc;
+
+        // Set cookies
         res.cookie("access_token", accessToken, {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
             sameSite: "strict",
-            maxAge: 15 * 60 * 1000, // 15 minutes
+            maxAge: 15 * 60 * 1000,
         });
 
         res.cookie("refresh_token", refreshToken, {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
             sameSite: "strict",
-            maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+            maxAge: 7 * 24 * 60 * 60 * 1000,
         });
 
-        res.status(200).json({ message: true, user: rest, accessToken });
+        res.status(200).json({
+            message: "User logged in successfully",
+            user: rest, 
+        });
     } catch (error) {
         next(error);
     }
 };
+
 export const refreshAccessToken = async (req, res, next) => {
     try {
         const { refreshToken } = req.cookies;
@@ -164,3 +165,40 @@ export const refreshAccessToken = async (req, res, next) => {
         next(error);
     }
 };
+export const logout = async (req, res, next) => {
+    try {
+        
+        const { refresh_token } = req.cookies;
+        console.log("Logout refresh token:", refresh_token); // Log the refresh token for debugging
+
+        if (!refresh_token) {
+            return res.status(204).send(); // No content, already logged out
+        }
+
+        // Find the user by refresh token
+        const user = await User.findOne({ refreshToken: refresh_token });
+        console.log("User found:", user); // Log the user for debugging
+
+        if (user) {
+            user.refreshToken = null; // Clear stored token
+            await user.save();
+        }
+
+        // Clear cookies
+        res.clearCookie('access_token', {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict',
+        });
+        res.clearCookie('refresh_token', {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict',
+        });
+
+        res.status(200).json({ message: 'Logged out successfully' });
+    } catch (error) {
+        next(error);
+    }
+};
+
