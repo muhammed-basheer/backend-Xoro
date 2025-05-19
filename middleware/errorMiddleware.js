@@ -1,4 +1,6 @@
-export default errorMiddleware = (err, req, res, next)=>{
+// errorMiddleware.js
+
+const errorMiddleware = (err, req, res, next) => {
     const statusCode = err.statusCode || 500;
     const message    = err.message    || "Internal Server Error !"
 
@@ -6,5 +8,7 @@ export default errorMiddleware = (err, req, res, next)=>{
         success : false,
         statusCode,
         message
-    })
-}
+    });
+};
+
+export default errorMiddleware;

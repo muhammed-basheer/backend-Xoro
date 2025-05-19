@@ -2,6 +2,7 @@ import mongoose from "mongoose"
 import bcrypt from "bcryptjs"
 const userSchema = new mongoose.Schema(
     {
+        studentId: { type: String, required: true, unique: true }, 
         name: { type: String, required: true },
         email: { type: String, required: true, unique: true },
         password: { type: String, required: true },
@@ -20,7 +21,13 @@ const userSchema = new mongoose.Schema(
         createdCourses: [{ type: mongoose.Schema.Types.ObjectId, ref: "Course" }], // Courses created
         isApprovedInstructor: { type: Boolean, default: false }, // Admin approval required
 
-        isActive: { type: Boolean, default: true }, // Admin can deactivate users
+        status: {
+            type: String,
+            enum: ["active", "inactive", "banned"],
+            default: "active"
+          },
+          
+        lastLogin: { type: Date, default: null },
         
     },
     { timestamps: true } 
