@@ -3,6 +3,8 @@ import User from "../models/User.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import errorHandling from "../utility/errorHandling.js";
+import passport from 'passport';
+
 
 // Common cookie options for consistency
 const getCookieOptions = () => {
@@ -13,6 +15,168 @@ const getCookieOptions = () => {
     maxAge: 15 * 60 * 1000, // 15 minutes for access token
     path: "/"  // Important! Ensures cookies are sent with all requests
   };
+};
+
+// controllers/authController.js - Add these Google OAuth methods
+
+// Initiate Google OAuth
+export const googleAuth = passport.authenticate('google', {
+  scope: ['profile', 'email'],
+  prompt: 'select_account' // Always show account selection
+});
+
+// Google OAuth Callback
+// Google OAuth Callback - Updated with fallback
+export const googleCallback = async (req, res, next) => {
+  passport.authenticate('google', { session: false }, async (err, user, info) => {
+    // console.log('Google OAuth Callback - User:', user);
+    
+    try {
+      if (err) {
+        console.error('Google OAuth Error:', err);
+        const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+        return res.redirect(`${clientUrl}/login?error=oauth_error`);
+      }
+      
+      if (!user) {
+        console.error('Google OAuth - No user returned:', info);
+        const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+        return res.redirect(`${clientUrl}/login?error=oauth_failed`);
+      }
+      
+      // Check if user account is banned
+      if (user.status === 'banned') {
+        const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+        return res.redirect(`${clientUrl}/login?error=account_banned`);
+      }
+      
+      // Generate tokens
+      const accessToken = jwt.sign(
+        { id: user._id, role: user.role },
+        process.env.JWT_SECRET,
+        { expiresIn: "15m" }
+      );
+      
+      const refreshToken = jwt.sign(
+        { id: user._id },
+        process.env.JWT_REFRESH,
+        { expiresIn: "7d" }
+      );
+      
+      // Save refresh token
+      user.refreshToken = refreshToken;
+      await user.save();
+      
+      // console.log("//////////////////////////",accessToken, refreshToken);
+      
+      // Set cookies
+      res.cookie("access_token", accessToken, getCookieOptions());
+      res.cookie("refresh_token", refreshToken, getRefreshCookieOptions());
+      
+      // Redirect to frontend with success - with fallback URL
+      const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+      console.log('Redirecting to:', `${clientUrl}?login=success`);
+      res.redirect(`${clientUrl}?login=success`);
+      
+    } catch (error) {
+      console.error('Google OAuth Callback Error:', error);
+      const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+      res.redirect(`${clientUrl}/login?error=server_error`);
+    }
+  })(req, res, next);
+};
+
+// Link Google account to existing user
+export const linkGoogleAccount = async (req, res, next) => {
+  try {
+    const userId = req.user.id; // From JWT middleware
+    const { googleToken } = req.body;
+    
+    if (!googleToken) {
+      return res.status(400).json({ message: 'Google token is required' });
+    }
+    
+    // Verify Google token
+    const { OAuth2Client } = require('google-auth-library');
+    const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+    
+    const ticket = await client.verifyIdToken({
+      idToken: googleToken,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    
+    const payload = ticket.getPayload();
+    const googleId = payload.sub;
+    const email = payload.email;
+    
+    // Check if Google account is already linked to another user
+    const existingGoogleUser = await User.findOne({ googleId });
+    if (existingGoogleUser && existingGoogleUser._id.toString() !== userId) {
+      return res.status(400).json({ 
+        message: 'This Google account is already linked to another user' 
+      });
+    }
+    
+    // Update current user
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    // Verify email matches
+    if (user.email !== email) {
+      return res.status(400).json({ 
+        message: 'Google account email does not match your account email' 
+      });
+    }
+    
+    user.googleId = googleId;
+    user.isEmailVerified = true;
+    await user.save();
+    
+    res.status(200).json({ 
+      message: 'Google account linked successfully',
+      user: {
+        id: user._id,
+        email: user.email,
+        name: user.name,
+        isEmailVerified: user.isEmailVerified
+      }
+    });
+    
+  } catch (error) {
+    console.error('Link Google Account Error:', error);
+    next(error);
+  }
+};
+
+// Unlink Google account
+export const unlinkGoogleAccount = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    // Ensure user has a password before unlinking
+    if (!user.password && user.authProvider === 'google') {
+      return res.status(400).json({ 
+        message: 'Please set a password before unlinking your Google account' 
+      });
+    }
+    
+    user.googleId = undefined;
+    user.authProvider = 'local';
+    await user.save();
+    
+    res.status(200).json({ message: 'Google account unlinked successfully' });
+    
+  } catch (error) {
+    console.error('Unlink Google Account Error:', error);
+    next(error);
+  }
 };
 
 // Refresh token cookie options (longer expiry)
@@ -240,8 +404,7 @@ export const adminLogin = async (req, res, next) => {
     
     user.refreshToken = refreshToken;
     await user.save();
-        console.log("access token", accessToken);
-    console.log("refresh token", refreshToken);
+     
         
     // Set cookies with consistent options
     res.cookie("access_token", accessToken, getCookieOptions());
@@ -263,6 +426,8 @@ export const adminLogin = async (req, res, next) => {
 export const checkAuth = async (req, res, next) => {
   try {
     const token = req.cookies.access_token;
+    // console.log("Checking auth with token:", token);
+    
     
     if (!token) {
       return res.status(401).json({ 

@@ -1,17 +1,34 @@
-import express from "express";
-import { signIn, signUp, refreshAccessToken, logout,adminLogin, checkAuth} from "../controllers/authController.js";
+// routes/authRoutes.js - Add these routes
+import express from 'express';
+import { 
+  signUp, 
+  signIn, 
+  logout, 
+  refreshAccessToken, 
+  adminLogin, 
+  checkAuth,
+  googleAuth,           // Add this
+  googleCallback,       // Add this
+  linkGoogleAccount,    // Add this
+  unlinkGoogleAccount   // Add this
+} from '../controllers/authController.js';
+import roleMiddleware from "../middleware/roleMiddleware.js";
 
 const router = express.Router();
-// user authentication routes
+
+// Existing routes
 router.post('/signup', signUp);
 router.post('/signin', signIn);
-router.post('/refresh-token', refreshAccessToken); 
 router.post('/logout', logout);
+router.post('/refresh', refreshAccessToken);
+router.post('/admin-login', adminLogin);
+router.get('/check', checkAuth);
 
+// Google OAuth routes
+router.get('/google', googleAuth);
+router.get('/google/callback', googleCallback);
 
-// admin authentication routes
-router.post('/admin-login', adminLogin);   
-
-router.get('/check-auth', checkAuth);
-
+// Account linking routes (protected)
+router.post('/link-google', roleMiddleware(), linkGoogleAccount);
+router.post('/unlink-google', roleMiddleware(), unlinkGoogleAccount);
 export default router;
